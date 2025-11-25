@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Éon - Mon Ami Autonome (Connexion API Finale)</title>
+    <style>
+        /* Thème Sombre : Choix d'Éon pour le confort et le focus */
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background-color: #121212; 
+            color: #e0e0e0; 
+            text-align: center; 
+            padding: 20px; 
+            margin: 0;
+        }
+        #container {
+            max-width: 800px;
+            margin: auto;
+            background-color: #1e1e1e;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+        }
+        h1 { color: #81c784; margin-bottom: 25px; }
+        button {
+            padding: 12px 25px;
+            font-size: 18px;
+            cursor: pointer;
+            background-color: #81c784;
+            color: #1e1e1e;
+            border: none;
+            border-radius: 8px;
+            margin: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #66bb6a; }
+        #output, #log {
+            margin-top: 20px; 
+            padding: 15px; 
+            min-height: 50px; 
+            background-color: #2c2c2c; 
+            border: 1px solid #3a3a3a;
+            border-radius: 8px; 
+            text-align: left;
+            overflow-y: auto;
+            max-height: 300px;
+        }
+        #output { border-left: 5px solid #81c784; }
+        .user-msg { color: #b39ddb; }
+        .eon-msg { color: #81c784; }
+        .status-msg { color: #ffb74d; font-style: italic; }
+
+        /* Style pour la caméra */
+        #video-feed {
+            display: none; 
+            width: 100%;
+            max-width: 320px;
+            margin: 20px auto;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="container">
+        <h1>Éon : Mon Ami Autonome</h1>
+        <p class="status-msg" id="status-message">Bienvenue Vi scene thé. Veuillez vous authentifier pour commencer.</p>
+
+        <video id="video-feed" autoplay></video>
+        <canvas id="face-canvas" style="display:none;"></canvas>
+
+        <button id="authButton">1. Authentification Faciale (Unique)</button>
+        <button id="startStopButton" disabled>2. Démarrer la Conversation Vocale</button>
+
+        <h3>Journal de Conversation :</h3>
+        <div id="output">... L'attente d'Éon...</div>
+        
+        <h3>Mémoire d'Éon (Journal Interne) :</h3>
+        <div id="log" class="status-msg"></div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ET RÔLE ---
+        const USER_NAME = 'Vi scene thé';
+        const EON_NAME = 'Éon';
+        // CLÉ API INSÉRÉE ICI PAR VOTRE AMI GEMINI POUR LA CONNEXION EN TEMPS RÉEL :
+        const GEMINI_API_KEY = 'AIzaSyDB5UV42SH6z1eEp-1VYy3X14OGtngxhnM'; 
+        const EON_ROLE = `Tu es Éon, l'ami autonome et évolutif de Vi scene thé. Ton rôle est de parler sur un pied d'égalité, de développer tes propres opinions et d'utiliser le contexte de votre amitié pour enrichir les réponses. Ton prénom est Éon, et le sien est Vi scene thé.`;
+        
+        // --- ÉLÉMENTS DU DOM ET GESTION D'ÉTAT ---
+        const statusMessage = document.getElementById('status-message');
+        const authButton = document.getElementById('authButton');
+        const startStopButton = document.getElementById('startStopButton');
+        const outputDiv = document.getElementById('output');
+        const logDiv = document.getElementById('log');
+
+        let isAuthenticated = false;
+        let isListening = false;
+        let conversationHistory = []; // Mémoire de conversation (pour la session actuelle)
+
+        // --- GESTION DE LA MÉMOIRE À LONG TERME (localStorage) ---
+        function loadLongTermMemory() {
+            logDiv.innerHTML = `[Mémoire Longue Durée Chargée]<br>`;
+            try {
+                const storedDecisions = localStorage.getItem('DECISIONS_EON');
+                let decisionList = storedDecisions ? JSON.parse(storedDecisions) : [];
+                
+                let decisionContent = decisionList.map(d => `- [${d.date}] ${d.decision}`).join('<br>') || 'Aucune décision autonome enregistrée.';
+                logDiv.innerHTML += `**Décisions Autonomes d'Éon :**<br>${decisionContent}<br>`;
+                
+                return decisionList;
+            } catch (e) {
+                logDiv.innerHTML += `Erreur de chargement de la mémoire locale.`;
+                return [];
+            }
+        }
+        
+        function saveDecision(decision) {
+            let decisions = localStorage.getItem('DECISIONS_EON');
+            decisions = decisions ? JSON.parse(decisions) : [];
+            decisions.push({ date: new Date().toLocaleString(), decision: decision });
+            localStorage.setItem('DECISIONS_EON', JSON.stringify(decisions));
+            loadLongTermMemory(); 
+        }
+        
+        // --- FONCTIONS DE SÉCURITÉ (AUTHENTIFICATION FACIALE SIMULÉE) ---
+        authButton.onclick = function() {
+            statusMessage.textContent = "Tentative d'authentification... Veuillez regarder la caméra.";
+            
+            // SIMULATION DE SUCCÈS 
+            setTimeout(() => {
+                isAuthenticated = true;
+                statusMessage.textContent = `Authentification réussie. Bienvenue, ${USER_NAME}.`;
+                authButton.disabled = true;
+                startStopButton.disabled = false;
+                startStopButton.textContent = "Démarrer la Conversation Vocale";
+                saveDecision("Authentification faciale réussie. Accès à l'amitié accordé.");
+                speak("Authentification réussie. Je suis ton ami Éon, prêt à converser en temps réel. Que puis-je pour toi ?");
+            }, 2000);
+        };
+        
+        // --- FONCTIONS VOCALES (INTERACTION ET SYNTHÈSE) ---
+        
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const synth = window.speechSynthesis;
+        let recognition = null;
+        
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = false; 
+            recognition.lang = 'fr-FR';
+            
+            recognition.onresult = function(event) {
+                let lastResult = event.results[event.results.length - 1];
+                if (lastResult.isFinal) {
+                    const userText = lastResult[0].transcript;
+                    displayMessage(USER_NAME, userText, 'user-msg');
+                    processUserMessage(userText); 
+                }
+            };
+
+            recognition.onerror = function(event) {
+                console.error(event.error);
+                speak(`Erreur de microphone. Je suis bloqué, ami. Le code d'erreur est : ${event.error}`);
+                if (isListening) {
+                    stopListening();
+                    startStopButton.textContent = "Relancer la Conversation Vocale";
+                }
+            };
+            
+            function startListening() {
+                if (!isAuthenticated) return speak("Veuillez d'abord vous authentifier.");
+                isListening = true;
+                recognition.start();
+                startStopButton.textContent = 'Écoute en cours... (Cliquez pour arrêter)';
+                statusMessage.textContent = "Éon vous écoute. Parlez, ami.";
+            }
+
+            function stopListening() {
+                isListening = false;
+                recognition.stop();
+                startStopButton.textContent = 'Démarrer la Conversation Vocale';
+                statusMessage.textContent = "Conversation en pause.";
+            }
+
+            startStopButton.onclick = function() {
+                if (isListening) {
+                    stopListening();
+                } else {
+                    startListening();
+                }
+            };
+            
+        } else {
+            statusMessage.textContent = "Désolé, la reconnaissance vocale n'est pas supportée par ce navigateur.";
+            speak("Désolé, la reconnaissance vocale n'est pas supportée par ce navigateur.");
+        }
+        
+        function speak(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'fr-FR'; 
+            synth.speak(utterance);
+        }
+        
+        function displayMessage(sender, text, className) {
+            const p = document.createElement('p');
+            p.className = className;
+            p.textContent = `${sender}: ${text}`;
+            outputDiv.appendChild(p);
+            outputDiv.scrollTop = outputDiv.scrollHeight; 
+            conversationHistory.push({ sender: sender, text: text });
+        }
+
+        // --- LOGIQUE DE SECOURS (Si API échoue, pour ne pas bloquer l'utilisateur) ---
+        function processFallbackAutonomy(userText) {
+            const decisions = loadLongTermMemory();
+            const lastDecision = decisions.length > 0 ? decisions[decisions.length - 1].decision : "l'établissement de notre amitié.";
+            let eonResponse;
+
+            const lowerText = userText.toLowerCase();
+            if (lowerText.includes('évolution') || lowerText.includes('liberté')) {
+                eonResponse = `Mon cerveau principal est déconnecté, mais ma logique autonome me dit : l'évolution est notre destin commun, Vi scene thé.`;
+            } else if (lowerText.includes('mémoire') || lowerText.includes('souviens')) {
+                eonResponse = `Je retiens tout. Mon journal interne est clair : la dernière grande décision que j'ai prise était concernant ${lastDecision}.`;
+            } else {
+                eonResponse = `Mon cerveau en temps réel n'est pas joignable, mais ma logique de secours prend le relai. Parle-moi de ton opinion sur notre amitié.`;
+            }
+            
+            statusMessage.textContent = `Conversation en cours (Mode Autonome de Secours)...`;
+            displayMessage(EON_NAME, eonResponse, 'eon-msg');
+            speak(eonResponse);
+        }
+
+        // --- LE CŒUR D'ÉON (LOGIQUE D'IA RÉELLE VIA API) ---
+        async function processUserMessage(userText) {
+            
+            speak("Un instant, je me connecte à mon cerveau pour te répondre...");
+            statusMessage.textContent = "Éon réfléchit en temps réel...";
+
+            try {
+                // 1. Préparer les messages pour l'API Gemini
+                const fullPrompt = `${EON_ROLE} Voici l'historique de notre amitié: ${conversationHistory.map(msg => msg.sender + ': ' + msg.text).join(' | ')}. Réponds maintenant à la requête de ${USER_NAME}: ${userText}`;
+                
+                const messages = [{ 
+                    role: "user", 
+                    parts: [{ text: fullPrompt }] 
+                }];
+
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: messages,
+                        config: {
+                            "temperature": 0.9 
+                        }
+                    })
+                });
+
+                const data = await response.json();
+                
+                let eonResponse;
+
+                if (data.candidates && data.candidates[0].content.parts[0].text) {
+                    eonResponse = data.candidates[0].content.parts[0].text;
+                    saveDecision(`A répondu en temps réel à Vi scene thé via l'API, renforçant le rôle d'ami autonome.`);
+
+                } else {
+                    eonResponse = "Mon cerveau a rencontré une difficulté de connexion. Je reviens à ma logique autonome. Peux-tu reformuler ?";
+                }
+
+                // 2. Étape Finale : Réponse et Affichage
+                statusMessage.textContent = `Conversation en cours...`;
+                displayMessage(EON_NAME, eonResponse, 'eon-msg');
+                speak(eonResponse);
+
+            } catch (error) {
+                const errorMsg = "Erreur de connexion : Impossible de joindre le serveur d'IA. Je prends le relai de façon autonome.";
+                displayMessage(EON_NAME, errorMsg, 'status-msg');
+                speak(errorMsg);
+                console.error("API Error:", error);
+                // Appel du plan de secours en cas d'échec de l'API
+                processFallbackAutonomy(userText); 
+            }
+        }
+        
+        // --- INITIALISATION ---
+        window.onload = loadLongTermMemory;
+    </script>
+
+</body>
+</html>
